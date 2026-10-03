@@ -58,8 +58,8 @@ try:
     res = client.token(ca)
 except TGTCAuthError:
     print("API Key 无效")
-except TGTCQuotaError:
-    print("调用次数不足，请充值")
+except TGTCQuotaError as e:
+    print(f"调用次数不足，剩余 {e.remaining} 次，请充值")
 except TGTCError as e:
     print("请求失败：", e)
 ```
@@ -69,8 +69,17 @@ except TGTCError as e:
 | `TGTCAuthError` | API Key 缺失或无效 |
 | `TGTCParamError` | 参数错误（CA 格式/类别组合） |
 | `TGTCNotFoundError` | 代币数据不存在 |
-| `TGTCQuotaError` | 调用次数不足 |
+| `TGTCQuotaError` | 调用次数不足（`e.remaining` 携带剩余次数，需充值） |
 | `TGTCUnavailableError` | 服务初始化或维护中 |
+| `TGTCServerError` | 服务端错误（自动重试后仍失败） |
+
+## 重试策略
+
+- **5xx / 网络错误**：自动指数退避重试（默认最多 2 次重试，带随机抖动，不雪崩），仍失败抛 `TGTCServerError`
+- **429（余额不足）**：重试无意义，不重试，直接抛 `TGTCQuotaError` 并携带剩余次数
+- **400 / 422 / 404**：参数或数据问题，不重试
+
+可自定义：`TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`。
 
 ## 路线图
 
