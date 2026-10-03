@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tgtc-sdk"
-version = "0.1.1"
+version = "0.2.0"
 description = "TGTC BSC 代币数据 API 的 Python 客户端（计费透明：每次返回剩余次数与扣次明细）"
 readme = "README.md"
 requires-python = ">=3.9"

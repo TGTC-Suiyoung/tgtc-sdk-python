@@ -1,55 +1,85 @@
 # tgtc-sdk (Python)
 
-TGTC 数据 API 的 Python 客户端。一行代码接入 BSC 代币数据：基本行情、持仓结构、安全审计、持有人、社交信息、聪明钱动向。
+**[中文](README.zh-CN.md)**
 
-**计费透明**：每次调用都会返回剩余次数与本次扣次明细，余额一眼可见。
+Official Python client for the TGTC data API. One line of code gets you BSC token intel — quotes, holders, security audit, socials, smart-money moves, wallets, tweets and more.
 
-## 安装
+**Transparent billing**: every call returns your remaining calls and the units this request cost.
+
+## Install
 
 ```bash
 pip install tgtc-sdk
 ```
 
-需要先创建 API Key（TGTC Bot 个人中心 → 我的 API）。
+You'll need an API Key (TGTC Bot profile center → My API).
 
-## 快速开始
+## Quick start
 
 ```python
 from tgtc import TGTC
 
-client = TGTC(api_key="你的 API Key")
+client = TGTC(api_key="your-api-key")
 
-# 代币聚合查询（默认返回完整产品类别）
-res = client.token("0x...合约地址")
+# Token aggregation (full product categories by default)
+res = client.token("0x...contract address")
 
-print(res.symbol)          # 代币符号
-print(res.price)           # 当前价格
-print(res.remaining)       # 剩余调用次数
-print(res.used)            # 本次扣次
+print(res.symbol)          # token symbol
+print(res.price)           # current price
+print(res.remaining)       # remaining calls
+print(res.used)            # units this request cost
 ```
 
-## 按类别/字段查询
+## Endpoints
+
+| Method | Endpoint | What you get |
+| --- | --- | --- |
+| `token(ca, categories=..., fields=...)` | `POST /api/v1/aggregation/token` | Full token intel: quotes / structure / security / holders / socials / smart money |
+| `trending(kind="new", limit=20)` | `POST /api/v1/token/trending` | Newly created / launched / graduating tokens |
+| `hot(interval="1h", limit=50)` | `POST /api/v1/token/hot` | Hot search rankings |
+| `trades(actor="smartmoney", side=..., limit=50)` | `POST /api/v1/track/trades` | Smart-money / KOL live trades |
+| `signals(signal_types=[20], limit=50)` | `POST /api/v1/market/signals` | Market signals (new listings, anomalies, smart-money behavior) |
+| `wallet(action, wallet, period="7d", ...)` | `POST /api/v1/wallet/{action}` | Wallet analysis: profile / stats / profits / activity / created / balance |
+| `twitter(action, username=..., ...)` | `POST /api/v1/twitter/{action}` | Twitter: user.info / tweets / timeline / followers / search / tweet.* |
+| `sentiment(ca)` | `POST /api/v1/twitter/sentiment` | CA sentiment: heat rating + AI insight + mentions |
+| `translate(action, text)` | `POST /api/v1/translate/{action}` | AI translate / summarize (outputs Chinese) |
+
+### Examples
 
 ```python
-# 只要行情 + 安全审计，扣次更少
-res = client.token(ca, categories=["basic", "security"])
+# Token rankings — newly launched
+for item in client.trending(kind="launch", limit=10).data.get("items", []):
+    print(item.get("symbol"), item.get("price"))
 
-# 精确字段裁剪（与 categories 二选一）
-res = client.token(ca, fields=["symbol", "price", "honeypot", "buy_tax"])
+# Smart-money buy trades
+for t in client.trades(actor="smartmoney", side="buy", limit=10).data.get("items", []):
+    print(t.get("token"), t.get("price"))
+
+# Wallet profile
+w = client.wallet("profile", wallet="0x...wallet")
+print(w.data.get("pnl_7d"), w.remaining)
+
+# CA sentiment
+s = client.sentiment("0x...contract")
+print(s.data.get("heat_tier"))
+
+# Translate
+r = client.translate("translate", text="gm everyone")
+print(r.data.get("text"))
 ```
 
-可选类别：`basic`（基本行情）/ `structure`（持仓结构）/ `holders`（持有人）/ `security`（安全审计）/ `social`（社交信息）/ `traders`（聪明钱动向）。
+Every endpoint accepts optional `fields=[...]` to trim the response (and pay less for less).
 
-## 计费明细
+## Billing transparency
 
-| 字段 | 说明 |
+| Field | Meaning |
 | --- | --- |
-| `remaining` | 剩余调用次数 |
-| `used` | 本次扣次（缓存命中为 0） |
-| `cache_hit` | 是否命中缓存（命中不扣次） |
-| `delay_sec` | 数据新鲜度（0 = 实时） |
+| `remaining` | Remaining calls after this request |
+| `used` | Units this request cost (0 on cache hit) |
+| `cache_hit` | True if served from cache (no charge) |
+| `delay_sec` | Data freshness (0 = live) |
 
-## 错误处理
+## Error handling
 
 ```python
 from tgtc import TGTCError, TGTCQuotaError, TGTCAuthError
@@ -57,40 +87,30 @@ from tgtc import TGTCError, TGTCQuotaError, TGTCAuthError
 try:
     res = client.token(ca)
 except TGTCAuthError:
-    print("API Key 无效")
+    print("invalid API key")
 except TGTCQuotaError as e:
-    print(f"调用次数不足，剩余 {e.remaining} 次，请充值")
+    print(f"out of calls — remaining {e.remaining}, please top up")
 except TGTCError as e:
-    print("请求失败：", e)
+    print("request failed:", e)
 ```
 
-| 异常 | 触发条件 |
+| Exception | When |
 | --- | --- |
-| `TGTCAuthError` | API Key 缺失或无效 |
-| `TGTCParamError` | 参数错误（CA 格式/类别组合） |
-| `TGTCNotFoundError` | 代币数据不存在 |
-| `TGTCQuotaError` | 调用次数不足（`e.remaining` 携带剩余次数，需充值） |
-| `TGTCUnavailableError` | 服务初始化或维护中 |
-| `TGTCServerError` | 服务端错误（自动重试后仍失败） |
+| `TGTCAuthError` | Missing / invalid API Key |
+| `TGTCParamError` | Bad parameters (CA format / category combos) |
+| `TGTCNotFoundError` | Token data not found |
+| `TGTCQuotaError` | Out of calls (`e.remaining` shows what's left — top up) |
+| `TGTCUnavailableError` | Service starting up or in maintenance |
+| `TGTCServerError` | Server error (raised after automatic retries) |
 
-## 重试策略
+## Retry policy
 
-- **5xx / 网络错误**：自动指数退避重试（默认最多 2 次重试，带随机抖动，不雪崩），仍失败抛 `TGTCServerError`
-- **429（余额不足）**：重试无意义，不重试，直接抛 `TGTCQuotaError` 并携带剩余次数
-- **400 / 422 / 404**：参数或数据问题，不重试
+- **5xx / network errors**: automatic exponential backoff with jitter (default up to 2 retries), raised as `TGTCServerError` after exhausting retries
+- **429 (out of calls)**: no retry — it would never succeed; raises `TGTCQuotaError` with remaining calls
+- **400 / 422 / 404**: no retry (client or data issue)
 
-可自定义：`TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`。
+Customize: `TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`.
 
-## 路线图
+## Docs
 
-- [x] token：代币聚合查询
-- [ ] token/trending + token/hot：榜单
-- [ ] twitter：推特检测/舆情
-- [ ] track：交易流
-- [ ] market：信号流
-- [ ] wallet：钱包分析
-- [ ] translate：翻译
-
-## 文档
-
-完整接口文档见 [TGTC API Docs](https://github.com/TGTC-Suiyoung/tgtc-api-docs)。
+Full API reference: [TGTC API Docs](https://github.com/TGTC-Suiyoung/tgtc-api-docs)

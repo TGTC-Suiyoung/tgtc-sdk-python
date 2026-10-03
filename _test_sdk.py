@@ -184,6 +184,73 @@ def test_missing_key():
         raise AssertionError("未传 api_key 应报错")
     print("PASS missing key")
 
+# ── 全端点：路径 + payload + 计费头 ──────────────────────────
+def test_all_endpoints():
+    """表格驱动：每个端点验证路径、payload 构造、计费头解析。"""
+    cases = [
+        # (方法调用, 期望路径, 期望 payload)
+        (("trending", dict(kind="launch", limit=10)),
+         "https://api.test/api/v1/token/trending",
+         {"chain": "bsc", "kind": "launch", "limit": 10}),
+        (("hot", dict(interval="5m", limit=30)),
+         "https://api.test/api/v1/token/hot",
+         {"chain": "bsc", "interval": "5m", "limit": 30}),
+        (("trades", dict(actor="kol", side="buy", limit=10)),
+         "https://api.test/api/v1/track/trades",
+         {"chain": "bsc", "actor": "kol", "side": "buy", "limit": 10}),
+        (("signals", dict(signal_types=[20], limit=10)),
+         "https://api.test/api/v1/market/signals",
+         {"chain": "bsc", "signal_types": [20], "limit": 10}),
+        (("wallet", dict(action="profile", wallet=CA, period="30d")),
+         "https://api.test/api/v1/wallet/profile",
+         {"chain": "bsc", "wallet": CA, "period": "30d", "limit": 20}),
+        (("twitter", dict(action="user.info", username="elon")),
+         "https://api.test/api/v1/twitter/user.info",
+         {"username": "elon"}),
+        (("twitter", dict(action="tweet.search", query="bsc")),
+         "https://api.test/api/v1/twitter/tweet.search",
+         {"query": "bsc"}),
+        (("sentiment", dict(ca=CA)),
+         "https://api.test/api/v1/twitter/sentiment",
+         {"ca": CA, "chain": "bsc"}),
+        (("translate", dict(action="translate", text="hello")),
+         "https://api.test/api/v1/translate/translate",
+         {"text": "hello"}),
+    ]
+    for (method, kwargs), path, payload in cases:
+        captured = {}
+        def fake_post(url, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResp(200, {"ca": CA, "data_delay_sec": 0, "degraded_sources": []},
+                            {"X-RateLimit-Remaining": "88", "X-RateLimit-Used": "1"})
+        c = _make_client()
+        with patch.object(c._session, "post", side_effect=fake_post):
+            res = getattr(c, method)(**kwargs)
+        assert captured["url"] == path, (method, captured["url"], path)
+        assert captured["json"] == payload, (method, captured["json"], payload)
+        assert res.remaining == 88 and res.used == 1 and not res.cache_hit
+        assert res.ok
+    print(f"PASS all endpoints ({len(cases)} cases)")
+
+def test_endpoint_optional_params_omitted():
+    """未传的可选参数不进入 payload（cursor/fields/token/tweet_ids 等）。"""
+    captured = {}
+    def fake_post(url, json=None, timeout=None):
+        captured["json"] = json
+        return FakeResp(200, {"data_delay_sec": 0, "degraded_sources": []},
+                        {"X-RateLimit-Remaining": "5", "X-RateLimit-Used": "1"})
+    c = _make_client()
+    with patch.object(c._session, "post", side_effect=fake_post):
+        c.wallet("activity", wallet=CA, cursor="abc", limit=5)
+    assert captured["json"] == {"chain": "bsc", "wallet": CA, "period": "7d",
+                                "limit": 5, "cursor": "abc"}
+    with patch.object(c._session, "post", side_effect=fake_post):
+        c.trades(actor="smartmoney")
+    assert captured["json"] == {"chain": "bsc", "actor": "smartmoney", "limit": 50}
+    assert "side" not in captured["json"]
+    print("PASS optional params omitted")
+
 if __name__ == "__main__":
     test_payload_and_headers()
     test_fields_mode()
@@ -194,4 +261,6 @@ if __name__ == "__main__":
     test_retry_5xx_exhausted()
     test_retry_network()
     test_missing_key()
+    test_all_endpoints()
+    test_endpoint_optional_params_omitted()
     print("ALL_TESTS_PASSED")
