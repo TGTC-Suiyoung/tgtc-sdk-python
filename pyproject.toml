@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tgtc-sdk"
+version = "0.1.0"
+description = "TGTC BSC 代币数据 API 的 Python 客户端（计费透明：每次返回剩余次数与扣次明细）"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["requests>=2.25"]
+
+[project.urls]
+Homepage = "https://www.tgtcbot.com"
+Documentation = "https://github.com/TGTC-Suiyoung/tgtc-api-docs"
+
+[tool.setuptools.packages.find]
+include = ["tgtc*"]
