@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""TGTC 客户端：X-API-Key 鉴权 + token 端点封装。
+"""TGTC 客户端：X-API-Key 鉴权 + 全产品端点封装。
 
-v0.1 只覆盖 token（代币聚合）端点；后续端点按同样模式追加方法即可。
+覆盖端点：代币聚合 / 榜单 / 交易流 / 信号流 / 钱包分析 / 推特检测 / CA 舆情 / AI 翻译。
 架构要点：
   · 计费透明——每次调用返回剩余次数（remaining）与本次扣次（used）
   · 错误映射——HTTP 状态码转明确异常（见 errors.py）
@@ -18,7 +18,7 @@ from typing import List, Optional
 
 import requests
 
-from .errors import TGTCError, TGTCQuotaError, _map_error, _parse_remaining
+from .errors import TGTCError, TGTCParamError, TGTCQuotaError, _map_error, _parse_remaining
 from .models import Result, TokenResult
 
 DEFAULT_BASE_URL = "https://www.tgtcbot.com"
@@ -145,6 +145,8 @@ class TGTC:
         返回:
             TokenResult：data 为完整响应体，remaining/used 为本次计费明细
         """
+        if categories and fields:
+            raise TGTCParamError("categories 与 fields 不能同时使用，请二选一")
         payload = {"ca": ca, "chain": chain}
         if categories:
             payload["categories"] = [str(c) for c in categories]

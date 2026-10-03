@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""tgtc-sdk 结构化返回。v0.1 覆盖 token 端点；其余端点复用 Result 基类扩展。"""
+"""tgtc-sdk 结构化返回。TokenResult 提供 token 端点常用字段快捷访问；
+其余端点统一返回 Result 通用信封（data + 计费明细）。"""
 
 from __future__ import annotations
 

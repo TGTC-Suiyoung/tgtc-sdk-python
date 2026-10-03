@@ -184,6 +184,24 @@ def test_missing_key():
         raise AssertionError("未传 api_key 应报错")
     print("PASS missing key")
 
+def test_categories_fields_mutual_exclusion():
+    """categories 与 fields 同时传：SDK 本地抛参错，不发请求。"""
+    c = _make_client()
+    calls = []
+    def fake_post(url, json=None, timeout=None):
+        calls.append(1)
+        return FakeResp(200, {"ca": CA, "data_delay_sec": 0, "degraded_sources": []},
+                        {"X-RateLimit-Remaining": "9", "X-RateLimit-Used": "1"})
+    with patch.object(c._session, "post", side_effect=fake_post):
+        try:
+            c.token(CA, categories=["basic"], fields=["symbol"])
+        except TGTCParamError as e:
+            assert "二选一" in str(e)
+        else:
+            raise AssertionError("互斥未校验")
+    assert len(calls) == 0, "互斥应在本地拦截，不发请求"
+    print("PASS categories/fields mutual exclusion")
+
 # ── 全端点：路径 + payload + 计费头 ──────────────────────────
 def test_all_endpoints():
     """表格驱动：每个端点验证路径、payload 构造、计费头解析。"""
@@ -261,6 +279,7 @@ if __name__ == "__main__":
     test_retry_5xx_exhausted()
     test_retry_network()
     test_missing_key()
+    test_categories_fields_mutual_exclusion()
     test_all_endpoints()
     test_endpoint_optional_params_omitted()
     print("ALL_TESTS_PASSED")
