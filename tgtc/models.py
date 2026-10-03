@@ -22,8 +22,6 @@ class Result:
         self.remaining = int(self.remaining) if self.remaining is not None else None
         self.used = int(self.used) if self.used is not None else None
         self.delay_sec = int(self.delay_sec) if self.delay_sec is not None else None
-        dg = self.data.get("degraded_sources")
-        self.degraded = list(dg) if isinstance(dg, list) else None
 
     @property
     def ok(self) -> bool:

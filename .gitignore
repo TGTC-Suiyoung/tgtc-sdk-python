@@ -5,3 +5,8 @@
 dist/
 build/
 *.egg-info/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example

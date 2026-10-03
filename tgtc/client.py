@@ -20,7 +20,7 @@ from .models import TokenResult
 DEFAULT_BASE_URL = "https://www.tgtcbot.com"
 TOKEN_PATH = "/api/v1/aggregation/token"
 
-# 可选类别（与后端 _CATEGORIES 一致）：缺省由服务端按产品默认执行
+# 可选类别（缺省由服务端按产品默认执行）
 CATEGORIES = ("basic", "structure", "holders", "security", "social", "traders")
 
 
