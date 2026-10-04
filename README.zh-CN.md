@@ -12,6 +12,8 @@ TGTC 数据 API 的官方 Python 客户端。一行代码接入 BSC 代币数据
 pip install tgtc-sdk
 ```
 
+需要 **Python 3.9+**（依赖：`requests`）。
+
 需要先创建 API Key（TGTC Bot 个人中心 → 我的 API）。
 
 ## 快速开始
@@ -110,6 +112,11 @@ except TGTCError as e:
 - **400 / 422 / 404**：参数或数据问题，不重试
 
 可自定义：`TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`。
+超时默认 `(3.05s 连接, 30s 读取)`——半开连接快速失败，不会卡死。
+
+## 开发测试
+
+运行测试套件：`python -m pytest tests/ -v`（或 `python tests/test_client.py`）。
 
 ## 文档
 

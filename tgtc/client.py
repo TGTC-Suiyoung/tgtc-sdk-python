@@ -38,6 +38,11 @@ CATEGORIES = ("basic", "structure", "holders", "security", "social", "traders")
 # 重试策略默认值：最多 3 次尝试（1 次原始 + 2 次重试），退避基数 0.5s
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_BACKOFF = 0.5
+DEFAULT_TIMEOUT = 30.0
+CONNECT_TIMEOUT_CAP = 3.05   # connect 阶段快失败：半开连接不拖到 read 超时
+
+# SDK 自身版本（User-Agent 标识用；__init__ 的 __version__ 复用此值）
+SDK_VERSION = "0.2.1"
 
 
 class TGTC:
@@ -53,17 +58,30 @@ class TGTC:
 
     def __init__(self, api_key: Optional[str] = None,
                  base_url: str = DEFAULT_BASE_URL,
-                 timeout: float = 30.0,
+                 timeout=DEFAULT_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  retry_backoff: float = DEFAULT_RETRY_BACKOFF) -> None:
         if not api_key:
             raise TGTCError("缺少 API Key：请在个人中心创建 Key 后传入 api_key")
         self._base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
-        self._timeout = timeout
+        self._timeout = self._normalize_timeout(timeout)
         self._max_retries = max(0, int(max_retries))
         self._retry_backoff = max(0.0, float(retry_backoff))
         self._session = requests.Session()
         self._session.headers["X-API-Key"] = api_key
+        self._session.headers["User-Agent"] = f"tgtc-sdk/{SDK_VERSION}"
+
+    @staticmethod
+    def _normalize_timeout(timeout) -> tuple:
+        """归一化超时：float → (connect, read)；tuple 原样保留。
+
+        connect 封顶 3.05s——半开连接（SYN 不回）快速失败，不拖到 read 超时；
+        read 用用户值（默认 30s）。防「网络半开卡死」。
+        """
+        if isinstance(timeout, (tuple, list)) and len(timeout) == 2:
+            return float(timeout[0]), float(timeout[1])
+        t = float(timeout) if timeout is not None else DEFAULT_TIMEOUT
+        return min(t, CONNECT_TIMEOUT_CAP), t
 
     # ── 内部请求管道 ──────────────────────────────────────────
     def _post(self, path: str, payload: dict) -> tuple[dict, dict]:

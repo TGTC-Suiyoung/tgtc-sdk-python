@@ -12,6 +12,8 @@ Official Python client for the TGTC data API. One line of code gets you BSC toke
 pip install tgtc-sdk
 ```
 
+Requires **Python 3.9+** (dependency: `requests`).
+
 You'll need an API Key (TGTC Bot profile center → My API).
 
 ## Quick start
@@ -110,6 +112,11 @@ except TGTCError as e:
 - **400 / 422 / 404**: no retry (client or data issue)
 
 Customize: `TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`.
+Timeout defaults to `(3.05s connect, 30s read)` — half-open connections fail fast instead of hanging.
+
+## Development
+
+Run the test suite: `python -m pytest tests/ -v` (or `python tests/test_client.py`).
 
 ## Docs
 

@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""tgtc-sdk 离线测试：mock requests，验证鉴权头/路径/参数构造/扣次解析/错误映射/
-重试策略（5xx/网络退避重试、429 直抛带剩余次数）。
+"""tgtc-sdk 测试套件（pytest 兼容，也可直接 python tests/test_client.py 运行）。
 
-运行：python _test_sdk.py
+覆盖：鉴权头/路径/参数构造/扣次解析/错误映射/重试策略（5xx/网络退避重试、
+429 直抛带剩余次数）/互斥校验/全端点 payload/超时归一化/User-Agent。
+
+运行方式：
+    python -m pytest tests/ -v        # 标准 pytest
+    python tests/test_client.py        # 直接运行
 """
-import sys, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from unittest.mock import patch
 
@@ -206,7 +212,6 @@ def test_categories_fields_mutual_exclusion():
 def test_all_endpoints():
     """表格驱动：每个端点验证路径、payload 构造、计费头解析。"""
     cases = [
-        # (方法调用, 期望路径, 期望 payload)
         (("trending", dict(kind="launch", limit=10)),
          "https://api.test/api/v1/token/trending",
          {"chain": "bsc", "kind": "launch", "limit": 10}),
@@ -269,6 +274,23 @@ def test_endpoint_optional_params_omitted():
     assert "side" not in captured["json"]
     print("PASS optional params omitted")
 
+# ── v0.2.1：超时归一化 + User-Agent ─────────────────────────
+def test_timeout_normalization():
+    """单值 → (connect 封顶 3.05, read 用户值)；tuple 原样保留。"""
+    assert _make_client()._timeout == (3.05, 30.0)
+    assert TGTC(api_key="k", base_url="https://x.test", timeout=10)._timeout == (3.05, 10.0)
+    assert TGTC(api_key="k", base_url="https://x.test", timeout=(3.0, 8.0))._timeout == (3.0, 8.0)
+    print("PASS timeout normalization")
+
+def test_user_agent():
+    """Session 携带 tgtc-sdk/<version> User-Agent。"""
+    c = _make_client()
+    ua = c._session.headers.get("User-Agent", "")
+    assert ua.startswith("tgtc-sdk/"), ua
+    from tgtc import __version__
+    assert ua == f"tgtc-sdk/{__version__}"
+    print("PASS user agent")
+
 if __name__ == "__main__":
     test_payload_and_headers()
     test_fields_mode()
@@ -282,4 +304,6 @@ if __name__ == "__main__":
     test_categories_fields_mutual_exclusion()
     test_all_endpoints()
     test_endpoint_optional_params_omitted()
+    test_timeout_normalization()
+    test_user_agent()
     print("ALL_TESTS_PASSED")
