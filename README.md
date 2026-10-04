@@ -107,8 +107,12 @@ except TGTCError as e:
 
 ## Retry policy
 
-- **5xx / network errors**: automatic exponential backoff with jitter (default up to 2 retries), raised as `TGTCServerError` after exhausting retries
-- **429 (out of calls)**: no retry — it would never succeed; raises `TGTCQuotaError` with remaining calls
+Aligned with the billing model — the service deducts credits **before** fetching data, so retrying after a server-side failure would double-charge.
+
+- **Connection failures** (refused / connect timeout — request never reached the server, not charged): automatic exponential backoff with jitter (default up to 2 retries)
+- **5xx** (server already charged): **no retry** — raised as `TGTCServerError`
+- **Read timeout** (request may have been charged): **no retry** — check your balance before retrying manually
+- **429 (out of calls)**: no retry — raises `TGTCQuotaError` with remaining calls
 - **400 / 422 / 404**: no retry (client or data issue)
 
 Customize: `TGTC(api_key=..., max_retries=3, retry_backoff=0.5)`.

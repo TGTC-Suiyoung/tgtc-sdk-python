@@ -132,41 +132,25 @@ def test_quota_meta_no_retry():
     assert len(calls) == 1, f"429 不应重试，实际请求 {len(calls)} 次"
     print("PASS quota meta + no retry")
 
-def test_retry_5xx_then_success():
-    """500 → 退避重试 → 第二次成功。"""
+def test_retry_5xx_no_retry():
+    """5xx = 服务端已扣次：不重试（防双扣），一次请求直接抛 TGTCServerError。"""
     calls = []
     def fake_post(url, json=None, timeout=None):
         calls.append(1)
-        if len(calls) == 1:
-            return FakeResp(500, {"detail": "数据获取失败，请稍后重试"})
-        return FakeResp(200, _ok_body(),
-                        {"X-RateLimit-Remaining": "50", "X-RateLimit-Used": "1"})
-    c = _make_client(max_retries=2)
-    with patch.object(c._session, "post", side_effect=fake_post):
-        res = c.token(CA)
-    assert len(calls) == 2, f"应重试 1 次，实际 {len(calls)} 次"
-    assert res.symbol == "TEST" and res.remaining == 50
-    print("PASS retry 5xx -> success")
-
-def test_retry_5xx_exhausted():
-    """连续 500 → 重试耗尽 → TGTCServerError。"""
-    calls = []
-    def fake_post(url, json=None, timeout=None):
-        calls.append(1)
-        return FakeResp(502, {"detail": "网关错误"})
-    c = _make_client(max_retries=2)
+        return FakeResp(500, {"detail": "数据获取失败，请稍后重试"})
+    c = _make_client(max_retries=3)  # 即使配置重试，5xx 也不重试
     with patch.object(c._session, "post", side_effect=fake_post):
         try:
             c.token(CA)
         except TGTCServerError as e:
-            assert "网关错误" in str(e)
+            assert "数据获取失败" in str(e)
         else:
-            raise AssertionError("重试耗尽应抛 TGTCServerError")
-    assert len(calls) == 3, f"原始 1 次 + 重试 2 次 = 3，实际 {len(calls)}"
-    print("PASS retry 5xx exhausted")
+            raise AssertionError("5xx 应抛 TGTCServerError")
+    assert len(calls) == 1, f"5xx 不应重试（防双扣），实际请求 {len(calls)} 次"
+    print("PASS retry 5xx -> no retry (anti double-charge)")
 
-def test_retry_network():
-    """网络错误 → 重试 → 第二次成功。"""
+def test_retry_connection_error():
+    """连接层失败（请求未到达，未扣次）→ 重试 → 第二次成功。"""
     calls = []
     def fake_post(url, json=None, timeout=None):
         calls.append(1)
@@ -179,7 +163,41 @@ def test_retry_network():
     with patch.object(c._session, "post", side_effect=fake_post):
         res = c.token(CA)
     assert len(calls) == 2 and res.remaining == 8
-    print("PASS retry network -> success")
+    print("PASS retry connection error -> success")
+
+def test_connect_timeout_retry():
+    """ConnectTimeout（连接未建立，未扣次）→ 重试安全。"""
+    calls = []
+    def fake_post(url, json=None, timeout=None):
+        calls.append(1)
+        if len(calls) == 1:
+            import requests as _r
+            raise _r.ConnectTimeout("connect timed out")
+        return FakeResp(200, _ok_body(),
+                        {"X-RateLimit-Remaining": "77", "X-RateLimit-Used": "1"})
+    c = _make_client(max_retries=1)
+    with patch.object(c._session, "post", side_effect=fake_post):
+        res = c.token(CA)
+    assert len(calls) == 2 and res.remaining == 77
+    print("PASS connect timeout retry")
+
+def test_read_timeout_no_retry():
+    """ReadTimeout（请求可能已扣次）→ 不重试（防双扣），只请求 1 次。"""
+    calls = []
+    def fake_post(url, json=None, timeout=None):
+        calls.append(1)
+        import requests as _r
+        raise _r.ReadTimeout("read timed out")
+    c = _make_client(max_retries=3)
+    with patch.object(c._session, "post", side_effect=fake_post):
+        try:
+            c.token(CA)
+        except TGTCError as e:
+            assert "已扣次" in str(e), str(e)
+        else:
+            raise AssertionError("读超时应抛错")
+    assert len(calls) == 1, f"读超时不应重试，实际请求 {len(calls)} 次"
+    print("PASS read timeout -> no retry (anti double-charge)")
 
 def test_missing_key():
     try:
@@ -297,9 +315,10 @@ if __name__ == "__main__":
     test_cache_hit()
     test_error_mapping()
     test_quota_meta_no_retry()
-    test_retry_5xx_then_success()
-    test_retry_5xx_exhausted()
-    test_retry_network()
+    test_retry_5xx_no_retry()
+    test_retry_connection_error()
+    test_connect_timeout_retry()
+    test_read_timeout_no_retry()
     test_missing_key()
     test_categories_fields_mutual_exclusion()
     test_all_endpoints()

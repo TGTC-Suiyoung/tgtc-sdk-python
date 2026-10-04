@@ -5,8 +5,9 @@
 架构要点：
   · 计费透明——每次调用返回剩余次数（remaining）与本次扣次（used）
   · 错误映射——HTTP 状态码转明确异常（见 errors.py）
-  · 重试策略——5xx / 网络错误指数退避重试（带 jitter）；429 是余额不足，
-    重试无意义，直接抛 TGTCQuotaError（携带剩余次数）
+  · 重试策略（与计费模型严格对齐）——连接层失败（未扣次）退避重试；
+    5xx / 读超时（服务端可能已扣次）不重试，防隐藏双扣；
+    429 是余额不足，直抛 TGTCQuotaError（携带剩余次数）
   · 零侵入——SDK 只面向 /api/v1 产品接口，不直连任何数据源
 """
 
@@ -42,7 +43,7 @@ DEFAULT_TIMEOUT = 30.0
 CONNECT_TIMEOUT_CAP = 3.05   # connect 阶段快失败：半开连接不拖到 read 超时
 
 # SDK 自身版本（User-Agent 标识用；__init__ 的 __version__ 复用此值）
-SDK_VERSION = "0.2.1"
+SDK_VERSION = "0.2.2"
 
 
 class TGTC:
@@ -87,27 +88,43 @@ class TGTC:
     def _post(self, path: str, payload: dict) -> tuple[dict, dict]:
         """POST JSON 到产品接口；返回 (响应体, 计费明细)。异常已映射为明确类型。
 
-        重试规则：5xx / 网络错误 → 指数退避重试（最多 max_retries 次）；
-        429（余额不足）→ 不重试，直接抛 TGTCQuotaError。
+        重试规则（与计费模型严格对齐——服务端先扣次后取数）：
+        · 连接层失败（连接未建立 / ConnectTimeout）→ 请求未到达服务端，未扣次 → 退避重试
+        · 读超时 → 请求可能已被服务端处理并扣次 → 不重试（防隐藏双扣）
+        · 5xx → 服务端已受理并扣次，重试会重复扣次 → 不重试，直接抛 TGTCServerError
+        · 429（余额不足）→ 重试无意义 → 直抛 TGTCQuotaError
+        · 400 / 422 / 404 → 参数或数据问题 → 不重试
         """
         attempts = self._max_retries + 1  # 1 次原始 + max_retries 次重试
         for attempt in range(1, attempts + 1):
             try:
                 resp = self._session.post(self._base_url + path,
                                           json=payload, timeout=self._timeout)
-            except requests.RequestException as e:
+            except requests.exceptions.ConnectTimeout as e:
+                # 连接未建立 → 请求未到达 → 未扣次 → 重试安全
                 if attempt < attempts:
                     time.sleep(self._backoff(attempt))
                     continue
+                raise TGTCError(f"连接超时：{e}") from e
+            except requests.exceptions.Timeout as e:
+                # 读超时：请求可能已被服务端处理并扣次 → 不重试（防双扣）
+                raise TGTCError(f"请求超时（本次可能已扣次，请核对余额后重试）：{e}") from e
+            except requests.ConnectionError as e:
+                # 连接层失败：请求未到达服务端，未扣次 → 重试安全
+                if attempt < attempts:
+                    time.sleep(self._backoff(attempt))
+                    continue
+                raise TGTCError(f"网络连接失败：{e}") from e
+            except requests.RequestException as e:
                 raise TGTCError(f"网络请求失败：{e}") from e
             # 429：余额不足，重试无意义——直抛并带上剩余次数
             if resp.status_code == 429:
                 detail = self._detail_of(resp)
                 raise TGTCQuotaError(detail, remaining=_parse_remaining(detail))
-            # 5xx：服务端抖动，退避重试
-            if resp.status_code >= 500 and attempt < attempts:
-                time.sleep(self._backoff(attempt))
-                continue
+            # 5xx：服务端已受理并扣次，重试会重复扣次 → 不重试，直接抛
+            if resp.status_code >= 500:
+                raise _map_error(resp.status_code, self._detail_of(resp),
+                                 headers=resp.headers)
             if resp.status_code >= 400:
                 raise _map_error(resp.status_code, self._detail_of(resp),
                                  headers=resp.headers)
